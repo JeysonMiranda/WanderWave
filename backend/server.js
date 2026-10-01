@@ -8,6 +8,7 @@ import destinationRoutes from './routes/destinationRoutes.js'
 import bookingRoutes from './routes/bookingRoutes.js'
 import adminRoutes from './routes/adminRoutes.js'
 import chatRoutes from './routes/chatRoutes.js'
+import reviewRoutes from './routes/reviewRoutes.js'
 
 // Load environment variables
 dotenv.config()
@@ -78,6 +79,7 @@ app.use('/api/destinations', destinationRoutes)
 app.use('/api/bookings', bookingRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/chat', chatRoutes)
+app.use('/api/reviews', reviewRoutes)
 
 // 404 Not Found fallback
 app.use((req, res) => {

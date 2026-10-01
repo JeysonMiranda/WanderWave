@@ -1,23 +1,56 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BarChart3, MapPin, Plane, Users, RefreshCw, Plus } from 'lucide-react'
+import {
+  BarChart3,
+  MapPin,
+  Plane,
+  Users,
+  RefreshCw,
+  Plus,
+  Star,
+  CheckCircle2,
+  XCircle,
+  Trash2,
+  ShieldCheck,
+  Search,
+  Building2,
+  Compass,
+  Car,
+  Package as PackageIcon,
+  Filter,
+} from 'lucide-react'
 import { useAuth } from '../context/useAuth'
-import { adminAPI, destinationsAPI } from '../services/api'
+import { useLanguage } from '../context/useLanguage'
+import { adminAPI, destinationsAPI, reviewsAPI } from '../services/api'
 import LanguageSelector from '../components/LanguageSelector'
 
 export default function AdminPortal() {
   const navigate = useNavigate()
+  const { t } = useLanguage()
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth()
 
-  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'destinations', 'bookings', 'users'
+  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'destinations', 'bookings', 'users', 'reviews'
 
   // Data states
   const [stats, setStats] = useState(null)
   const [destinations, setDestinations] = useState([])
   const [bookings, setBookings] = useState([])
   const [users, setUsers] = useState([])
+  const [reviewsList, setReviewsList] = useState([])
+  const [reviewMetrics, setReviewMetrics] = useState({
+    totalReviews: 0,
+    pendingReviews: 0,
+    approvedReviews: 0,
+    rejectedReviews: 0,
+    averageScore: 5.0,
+  })
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('all')
+  const [reviewCategoryFilter, setReviewCategoryFilter] = useState('all')
+  const [reviewSearch, setReviewSearch] = useState('')
+  const [isModerating, setIsModerating] = useState(false)
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [actionMessage, setActionMessage] = useState({ text: '', type: '' })
+
 
   // Destination Modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -44,17 +77,20 @@ export default function AdminPortal() {
 
     setIsLoadingData(true)
     try {
-      const [statsRes, destsRes, bookingsRes, usersRes] = await Promise.all([
+      const [statsRes, destsRes, bookingsRes, usersRes, reviewsRes] = await Promise.all([
         adminAPI.getStats().catch(() => ({ data: null })),
         destinationsAPI.getAll().catch(() => ({ data: [] })),
         adminAPI.getAllBookings().catch(() => ({ data: [] })),
         adminAPI.getUsers().catch(() => ({ data: [] })),
+        reviewsAPI.getAdminReviews().catch(() => ({ data: [], metrics: {} })),
       ])
 
       setStats(statsRes.data || null)
       setDestinations(destsRes.data || [])
       setBookings(bookingsRes.data || [])
       setUsers(usersRes.data || [])
+      setReviewsList(reviewsRes.data || [])
+      if (reviewsRes.metrics) setReviewMetrics(reviewsRes.metrics)
     } catch (error) {
       console.error('[AdminPortal] Data load error:', error)
       setActionMessage({ text: 'Failed to load some admin data from the database.', type: 'error' })
@@ -68,17 +104,20 @@ export default function AdminPortal() {
     async function initData() {
       if (!isAuthenticated || user?.role !== 'admin') return
       try {
-        const [statsRes, destsRes, bookingsRes, usersRes] = await Promise.all([
+        const [statsRes, destsRes, bookingsRes, usersRes, reviewsRes] = await Promise.all([
           adminAPI.getStats().catch(() => ({ data: null })),
           destinationsAPI.getAll().catch(() => ({ data: [] })),
           adminAPI.getAllBookings().catch(() => ({ data: [] })),
           adminAPI.getUsers().catch(() => ({ data: [] })),
+          reviewsAPI.getAdminReviews().catch(() => ({ data: [], metrics: {} })),
         ])
         if (isMounted) {
           setStats(statsRes.data || null)
           setDestinations(destsRes.data || [])
           setBookings(bookingsRes.data || [])
           setUsers(usersRes.data || [])
+          setReviewsList(reviewsRes.data || [])
+          if (reviewsRes.metrics) setReviewMetrics(reviewsRes.metrics)
         }
       } catch (err) {
         console.error('[AdminPortal] Init load error:', err)
@@ -98,11 +137,87 @@ export default function AdminPortal() {
     }
   }, [isAuthenticated, user])
 
+
   // Notification helper
   const notify = (text, type = 'success') => {
     setActionMessage({ text, type })
     setTimeout(() => setActionMessage({ text: '', type: '' }), 4000)
   }
+
+  // Filtered reviews memo
+  const filteredReviews = useMemo(() => {
+    return reviewsList.filter((rev) => {
+      if (reviewStatusFilter !== 'all' && rev.status !== reviewStatusFilter) return false
+      if (
+        reviewCategoryFilter !== 'all' &&
+        rev.targetType?.toLowerCase() !== reviewCategoryFilter.toLowerCase()
+      ) {
+        return false
+      }
+      if (reviewSearch.trim()) {
+        const q = reviewSearch.toLowerCase()
+        const matchName = rev.targetName?.toLowerCase().includes(q)
+        const matchUser = rev.userName?.toLowerCase().includes(q)
+        const matchTitle = rev.title?.toLowerCase().includes(q)
+        const matchComment = rev.comment?.toLowerCase().includes(q)
+        if (!matchName && !matchUser && !matchTitle && !matchComment) return false
+      }
+      return true
+    })
+  }, [reviewsList, reviewStatusFilter, reviewCategoryFilter, reviewSearch])
+
+  // Moderate Review Handler (Approve / Reject)
+  const handleModerateReview = async (id, newStatus) => {
+    try {
+      setIsModerating(true)
+      const res = await reviewsAPI.moderate(id, { status: newStatus })
+      if (res.success && res.data) {
+        setReviewsList((prev) =>
+          prev.map((r) => (r._id === id ? { ...r, status: newStatus } : r))
+        )
+        setReviewMetrics((prev) => {
+          const oldReview = reviewsList.find((r) => r._id === id)
+          const oldStatus = oldReview ? oldReview.status : 'pending'
+          const updated = { ...prev }
+          if (oldStatus === 'pending') updated.pendingReviews = Math.max(0, updated.pendingReviews - 1)
+          if (oldStatus === 'approved') updated.approvedReviews = Math.max(0, updated.approvedReviews - 1)
+          if (oldStatus === 'rejected') updated.rejectedReviews = Math.max(0, updated.rejectedReviews - 1)
+
+          if (newStatus === 'approved') updated.approvedReviews = (updated.approvedReviews || 0) + 1
+          if (newStatus === 'rejected') updated.rejectedReviews = (updated.rejectedReviews || 0) + 1
+          if (newStatus === 'pending') updated.pendingReviews = (updated.pendingReviews || 0) + 1
+          return updated
+        })
+        notify(`Review status updated to "${newStatus}".`)
+      }
+    } catch (error) {
+      console.error('[Moderate Review Error]:', error)
+      notify(error.message || 'Failed to update review status.', 'error')
+    } finally {
+      setIsModerating(false)
+    }
+  }
+
+  // Delete Review Handler
+  const handleDeleteReview = async (id, targetName) => {
+    if (!window.confirm(`Are you sure you want to permanently delete this review for "${targetName}"?`)) {
+      return
+    }
+
+    try {
+      await reviewsAPI.delete(id)
+      setReviewsList((prev) => prev.filter((r) => r._id !== id))
+      setReviewMetrics((prev) => ({
+        ...prev,
+        totalReviews: Math.max(0, prev.totalReviews - 1),
+      }))
+      notify('Review permanently removed from database.')
+    } catch (error) {
+      console.error('[Delete Review Error]:', error)
+      notify(error.message || 'Failed to delete review.', 'error')
+    }
+  }
+
 
   // Create Destination Handler
   const handleCreateDestination = async (e) => {
@@ -356,6 +471,23 @@ export default function AdminPortal() {
             >
               <Users className="w-4 h-4 shrink-0" />
               <span>Travelers ({users.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('reviews')}
+              className={`px-4 py-2 rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'reviews'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Star className="w-4 h-4 shrink-0 text-amber-400" />
+              <span>{t('tabReviews')} ({reviewsList.length})</span>
+              {reviewMetrics.pendingReviews > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                  {reviewMetrics.pendingReviews}
+                </span>
+              )}
             </button>
           </div>
 
@@ -666,6 +798,333 @@ export default function AdminPortal() {
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 5: REVIEWS & RATINGS MODERATION ATELIER */}
+        {activeTab === 'reviews' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header Title & Subtitle */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+                  <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                  <span>{t('moderationTitle')}</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Moderate traveler experiences across Packages, Hotels, Guides, Drivers, and Destinations.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">
+                  Showing <strong>{filteredReviews.length}</strong> of {reviewsList.length} reviews
+                </span>
+              </div>
+            </div>
+
+            {/* Moderation Metrics 4 Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 space-y-1">
+                <span className="text-xs text-slate-400">{t('totalReviews')}</span>
+                <p className="text-2xl font-black text-white">{reviewMetrics.totalReviews || reviewsList.length}</p>
+                <p className="text-[11px] text-slate-500">Across all categories</p>
+              </div>
+
+              <div className="bg-slate-900/80 p-5 rounded-2xl border border-amber-500/30 space-y-1">
+                <span className="text-xs text-amber-300 font-semibold">{t('pendingModeration')}</span>
+                <p className="text-2xl font-black text-amber-400">{reviewMetrics.pendingReviews || 0}</p>
+                <p className="text-[11px] text-amber-400/80">Requires admin approval</p>
+              </div>
+
+              <div className="bg-slate-900/80 p-5 rounded-2xl border border-emerald-500/20 space-y-1">
+                <span className="text-xs text-emerald-300 font-semibold">{t('approvedReviews')}</span>
+                <p className="text-2xl font-black text-emerald-400">{reviewMetrics.approvedReviews || 0}</p>
+                <p className="text-[11px] text-emerald-400/80">Live on public portal</p>
+              </div>
+
+              <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 space-y-1">
+                <span className="text-xs text-slate-400">{t('reviewsOverviewScore')}</span>
+                <p className="text-2xl font-black text-amber-400 flex items-center gap-1.5">
+                  <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                  <span>{reviewMetrics.averageScore ? Number(reviewMetrics.averageScore).toFixed(1) : '5.0'}</span>
+                </p>
+                <p className="text-[11px] text-slate-500">Average voyager rating</p>
+              </div>
+            </div>
+
+            {/* Moderation Controls: Search + Status Filter Pills + Category Dropdown */}
+            <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+              {/* Status Filter Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setReviewStatusFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    reviewStatusFilter === 'all'
+                      ? 'bg-amber-500 text-slate-950 shadow-md'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  {t('allStatuses')} ({reviewsList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewStatusFilter('pending')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    reviewStatusFilter === 'pending'
+                      ? 'bg-amber-500 text-slate-950 shadow-md font-bold'
+                      : 'bg-slate-950 text-amber-400 hover:text-amber-300 border border-amber-500/30'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                  <span>{t('reviewStatusPending')} ({reviewsList.filter(r => r.status === 'pending').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewStatusFilter('approved')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    reviewStatusFilter === 'approved'
+                      ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
+                      : 'bg-slate-950 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20'
+                  }`}
+                >
+                  <span>{t('reviewStatusApproved')} ({reviewsList.filter(r => r.status === 'approved').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReviewStatusFilter('rejected')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    reviewStatusFilter === 'rejected'
+                      ? 'bg-rose-500 text-white shadow-md font-bold'
+                      : 'bg-slate-950 text-rose-400 hover:text-rose-300 border border-rose-500/20'
+                  }`}
+                >
+                  <span>{t('reviewStatusRejected')} ({reviewsList.filter(r => r.status === 'rejected').length})</span>
+                </button>
+              </div>
+
+              {/* Category & Search */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Category selector */}
+                <div className="flex items-center gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" />
+                  <select
+                    value={reviewCategoryFilter}
+                    onChange={(e) => setReviewCategoryFilter(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none focus:border-amber-400 cursor-pointer"
+                  >
+                    <option value="all">{t('targetAll')}</option>
+                    <option value="Destination">{t('targetDestination')}</option>
+                    <option value="Hotel">{t('targetHotel')}</option>
+                    <option value="Guide">{t('targetGuide')}</option>
+                    <option value="Driver">{t('targetDriver')}</option>
+                    <option value="Package">{t('targetPackage')}</option>
+                  </select>
+                </div>
+
+                {/* Search */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={reviewSearch}
+                    onChange={(e) => setReviewSearch(e.target.value)}
+                    placeholder="Search reviews or target..."
+                    className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 w-44 sm:w-56"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Reviews List Cards */}
+            {filteredReviews.length > 0 ? (
+              <div className="space-y-4">
+                {filteredReviews.map((rev) => {
+                  const isApproved = rev.status === 'approved'
+                  const isPending = rev.status === 'pending'
+
+                  const CategoryIcon =
+                    rev.targetType === 'Driver'
+                      ? Car
+                      : rev.targetType === 'Hotel'
+                      ? Building2
+                      : rev.targetType === 'Guide'
+                      ? Compass
+                      : rev.targetType === 'Package'
+                      ? PackageIcon
+                      : MapPin
+
+                  return (
+                    <div
+                      key={rev._id}
+                      className={`p-5 rounded-2xl border transition-all space-y-3.5 ${
+                        isPending
+                          ? 'bg-slate-900/90 border-amber-500/40 shadow-lg shadow-amber-500/5'
+                          : isApproved
+                          ? 'bg-slate-900/70 border-slate-800 hover:border-slate-700'
+                          : 'bg-slate-900/40 border-rose-500/30 opacity-70'
+                      }`}
+                    >
+                      {/* Top Row: Target Category Pill, Target Name, Status Badge, Star Rating */}
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                            <CategoryIcon className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{rev.targetType}</span>
+                          </span>
+
+                          <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                            {rev.targetName}
+                          </h3>
+
+                          {rev.verifiedBooking && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" />
+                              <span>{t('verifiedBookingBadge')}</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {/* Stars */}
+                          <div className="flex items-center gap-1">
+                            {[...Array(5)].map((_, i) => (
+                              <Star
+                                key={i}
+                                className={`w-4 h-4 ${
+                                  i < rev.rating
+                                    ? 'fill-amber-400 text-amber-400'
+                                    : 'text-slate-700'
+                                }`}
+                              />
+                            ))}
+                            <span className="text-xs font-bold text-amber-400 ml-1">
+                              {rev.rating}.0
+                            </span>
+                          </div>
+
+                          {/* Status Badge */}
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              isApproved
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : isPending
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {rev.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Review Headline & Commentary */}
+                      <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-850 space-y-1.5 text-xs">
+                        {rev.title && (
+                          <h4 className="font-bold text-amber-300 text-sm">
+                            {rev.title}
+                          </h4>
+                        )}
+                        <p className="text-slate-200 font-light leading-relaxed">
+                          &ldquo;{rev.comment}&rdquo;
+                        </p>
+                      </div>
+
+                      {/* Sub-ratings if present */}
+                      {rev.subRatings && Object.values(rev.subRatings).some((v) => v) && (
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
+                          {rev.subRatings.driverRating && (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800">
+                              Driver: ⭐ {rev.subRatings.driverRating}.0
+                            </span>
+                          )}
+                          {rev.subRatings.hotelRating && (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800">
+                              Hotel: ⭐ {rev.subRatings.hotelRating}.0
+                            </span>
+                          )}
+                          {rev.subRatings.guideRating && (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800">
+                              Guide: ⭐ {rev.subRatings.guideRating}.0
+                            </span>
+                          )}
+                          {rev.subRatings.packageRating && (
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800">
+                              Package: ⭐ {rev.subRatings.packageRating}.0
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Footer Info & Moderation Action Buttons */}
+                      <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="text-slate-400 text-[11px] flex items-center gap-2">
+                          <span>By: <strong className="text-slate-200">{rev.userName}</strong> ({rev.userEmail || 'Traveler'})</span>
+                          <span>•</span>
+                          <span>{new Date(rev.createdAt).toLocaleDateString()}</span>
+                        </div>
+
+                        {/* Actions: Approve / Reject / Delete */}
+                        <div className="flex items-center gap-2">
+                          {rev.status !== 'approved' && (
+                            <button
+                              type="button"
+                              onClick={() => handleModerateReview(rev._id, 'approved')}
+                              disabled={isModerating}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>{t('approveReviewBtn')}</span>
+                            </button>
+                          )}
+
+                          {rev.status !== 'rejected' && (
+                            <button
+                              type="button"
+                              onClick={() => handleModerateReview(rev._id, 'rejected')}
+                              disabled={isModerating}
+                              className="px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>{t('rejectReviewBtn')}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteReview(rev._id, rev.targetName)}
+                            className="p-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700/80 transition-colors cursor-pointer"
+                            title={t('deleteReviewBtn')}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="p-12 text-center bg-slate-900/50 rounded-2xl border border-slate-800 space-y-3">
+                <Star className="w-8 h-8 text-amber-400/50 mx-auto" />
+                <h3 className="text-base font-bold text-white">No reviews found</h3>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  No reviews match your selected status and category filter criteria.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewStatusFilter('all')
+                    setReviewCategoryFilter('all')
+                    setReviewSearch('')
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-amber-400 text-xs font-bold hover:bg-slate-750 transition-colors cursor-pointer"
+                >
+                  Clear Filters
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>

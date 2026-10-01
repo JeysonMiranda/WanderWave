@@ -168,3 +168,55 @@ export const chatAPI = {
       body: JSON.stringify({ message, conversationHistory, language }),
     }),
 }
+
+// Reviews & Ratings API services
+export const reviewsAPI = {
+  getAll: (params = {}) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        searchParams.append(key, val)
+      }
+    })
+    const qs = searchParams.toString()
+    return request(qs ? `/reviews?${qs}` : '/reviews', {
+      method: 'GET',
+    })
+  },
+
+  getMyReviews: () =>
+    request('/reviews/my-reviews', {
+      method: 'GET',
+    }),
+
+  create: (reviewData) =>
+    request('/reviews', {
+      method: 'POST',
+      body: JSON.stringify(reviewData),
+    }),
+
+  getAdminReviews: (params = {}) => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        searchParams.append(key, val)
+      }
+    })
+    const qs = searchParams.toString()
+    return request(qs ? `/admin/reviews?${qs}` : '/admin/reviews', {
+      method: 'GET',
+    })
+  },
+
+  moderate: (id, payload) =>
+    request(`/admin/reviews/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  delete: (id) =>
+    request(`/reviews/${id}`, {
+      method: 'DELETE',
+    }),
+}
+

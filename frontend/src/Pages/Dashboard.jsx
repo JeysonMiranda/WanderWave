@@ -22,11 +22,13 @@ import {
   PhoneCall,
   Trash2,
   FileText,
+  Star,
 } from 'lucide-react'
 import { useLanguage } from '../context/useLanguage'
 import { useAuth } from '../context/useAuth'
 import { bookingsAPI, destinationsAPI } from '../services/api'
 import LanguageSelector from '../components/LanguageSelector'
+import ReviewModal from '../components/ReviewModal'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -42,6 +44,10 @@ export default function Dashboard() {
   const [isLoadingBookings, setIsLoadingBookings] = useState(true)
   const [fetchError, setFetchError] = useState('')
   const [actionNotice, setActionNotice] = useState(null) // { type: 'success' | 'error', text: '' }
+
+  // Review Modal State
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
+  const [selectedReviewBooking, setSelectedReviewBooking] = useState(null)
 
   // Wishlist State from localStorage
   const [wishlistIds, setWishlistIds] = useState(() => {
@@ -622,10 +628,23 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => setSelectedVoucher(booking)}
-                          className="flex-1 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="flex-1 px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <FileText className="w-3.5 h-3.5 text-amber-400" />
-                          <span>{t('voucherBtn')}</span>
+                          <span className="truncate">{t('voucherBtn')}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedReviewBooking(booking)
+                            setReviewModalOpen(true)
+                          }}
+                          className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                          title={t('reviewTripBtn')}
+                        >
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                          <span>{t('reviewTripBtn')}</span>
                         </button>
 
                         {!isCancelled && (
@@ -633,7 +652,7 @@ export default function Dashboard() {
                             type="button"
                             onClick={() => handleCancelBooking(booking._id)}
                             disabled={cancelingId === booking._id}
-                            className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                            className="px-2.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                             title={t('cancelBookingBtn')}
                           >
                             {cancelingId === booking._id ? '...' : <Trash2 className="w-3.5 h-3.5" />}
@@ -1046,6 +1065,29 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* VOYAGER REVIEW & RATING MODAL */}
+      {reviewModalOpen && (
+        <ReviewModal
+          key={selectedReviewBooking?._id || 'new-review'}
+          isOpen={reviewModalOpen}
+          onClose={() => {
+            setReviewModalOpen(false)
+            setSelectedReviewBooking(null)
+          }}
+          onSuccess={() => {
+            setActionNotice({
+              type: 'success',
+              text: t('reviewSuccessMsg'),
+            })
+          }}
+          bookingId={selectedReviewBooking?._id}
+          bookingRef={selectedReviewBooking?.bookingRef}
+          bookingDetails={selectedReviewBooking}
+          defaultTargetType="Package"
+          defaultTargetName={selectedReviewBooking?.destinationTitle || ''}
+        />
       )}
 
       {/* FOOTER */}

@@ -1,6 +1,7 @@
 import Destination from '../models/Destination.js'
 import User from '../models/User.js'
 import Booking from '../models/Booking.js'
+import Review from '../models/Review.js'
 
 export const seedInitialData = async () => {
   try {
@@ -427,7 +428,114 @@ export const seedInitialData = async () => {
       })
       console.log('[Seeder] Administrator account created successfully.')
     }
+
+    // 4. Seed Initial Reviews across Packages, Hotels, Guides, Drivers, and Destinations
+    const existingReviewsCount = await Review.countDocuments()
+    if (existingReviewsCount === 0) {
+      console.log('[Seeder] Seeding initial voyager reviews & ratings...')
+      const userSophia = await User.findOne({ email: 'demo@wanderwave.com' })
+      const userAlex = await User.findOne({ email: 'traveler@wanderwave.com' })
+      const demoBooking = await Booking.findOne({ user: userSophia?._id })
+      const alexBooking = await Booking.findOne({ user: userAlex?._id })
+
+      const seedReviews = [
+        {
+          user: userSophia?._id,
+          userName: userSophia?.name || 'Sophia Martinez',
+          userEmail: userSophia?.email || 'demo@wanderwave.com',
+          booking: demoBooking?._id || null,
+          targetType: 'Driver',
+          targetName: 'Jean-Luc Chauffeur Service',
+          rating: 5,
+          subRatings: { driverRating: 5 },
+          title: 'Amazing experience! The driver was very helpful.',
+          comment: 'Amazing experience! The driver was very helpful. Navigated the winding Amalfi cliff roads with supreme skill, had chilled San Pellegrino waiting, and gave us fabulous local recommendations.',
+          status: 'approved',
+          verifiedBooking: true,
+          helpfulCount: 24,
+        },
+        {
+          user: userSophia?._id,
+          userName: userSophia?.name || 'Sophia Martinez',
+          userEmail: userSophia?.email || 'demo@wanderwave.com',
+          booking: demoBooking?._id || null,
+          targetType: 'Hotel',
+          targetName: 'Villa TreVille Positano',
+          rating: 5,
+          subRatings: { hotelRating: 5 },
+          title: 'Breathtaking Cliffside Haven',
+          comment: 'The cliffside private villa was beyond our highest expectations. Michelin dining, panoramic Mediterranean sunsets, and world-class concierge hospitality.',
+          status: 'approved',
+          verifiedBooking: true,
+          helpfulCount: 19,
+        },
+        {
+          user: userSophia?._id,
+          userName: userSophia?.name || 'Sophia Martinez',
+          userEmail: userSophia?.email || 'demo@wanderwave.com',
+          booking: demoBooking?._id || null,
+          targetType: 'Guide',
+          targetName: 'Marco Della Valle',
+          rating: 5,
+          subRatings: { guideRating: 5 },
+          title: 'Unrivaled Cultural & Maritime Guide',
+          comment: 'Marco curated an unforgettable day through Capri and Positano. Hidden grottos away from the tourists and incredible historical storytelling.',
+          status: 'approved',
+          verifiedBooking: true,
+          helpfulCount: 15,
+        },
+        {
+          user: userAlex?._id || userSophia?._id,
+          userName: userAlex?.name || 'Alex Vance',
+          userEmail: userAlex?.email || 'traveler@wanderwave.com',
+          booking: alexBooking?._id || null,
+          targetType: 'Destination',
+          targetName: 'Kyoto Imperial Gardens',
+          rating: 5,
+          subRatings: { packageRating: 5 },
+          title: 'Deeply Moving Cultural Awakening',
+          comment: 'From the early morning bamboo groves to the private tea master sanctuary, Kyoto was timeless. Everything was flawlessly arranged.',
+          status: 'approved',
+          verifiedBooking: true,
+          helpfulCount: 31,
+        },
+        {
+          user: userAlex?._id || userSophia?._id,
+          userName: userAlex?.name || 'Alex Vance',
+          userEmail: userAlex?.email || 'traveler@wanderwave.com',
+          booking: alexBooking?._id || null,
+          targetType: 'Package',
+          targetName: 'Sovereign Mediterranean Odyssey',
+          rating: 5,
+          subRatings: { packageRating: 5, hotelRating: 5, guideRating: 5, driverRating: 5 },
+          title: 'Exemplary All-Inclusive Luxury Expedition',
+          comment: 'Every facet of the package — private aviation transfers, Michelin dining reservations, and yacht charters — operated like clockwork.',
+          status: 'approved',
+          verifiedBooking: true,
+          helpfulCount: 28,
+        },
+        {
+          user: userAlex?._id || userSophia?._id,
+          userName: userAlex?.name || 'Alex Vance',
+          userEmail: userAlex?.email || 'traveler@wanderwave.com',
+          booking: alexBooking?._id || null,
+          targetType: 'Driver',
+          targetName: 'Kenji Chauffeurs Tokyo',
+          rating: 4,
+          subRatings: { driverRating: 4 },
+          title: 'Punctual & Courteous Transfer',
+          comment: 'Prompt pickup at Tokyo Gran Class station in an immaculate electric limousine. Very helpful with luggage assistance.',
+          status: 'pending',
+          verifiedBooking: true,
+          helpfulCount: 3,
+        },
+      ]
+
+      await Review.insertMany(seedReviews)
+      console.log('[Seeder] Voyager reviews & ratings successfully seeded.')
+    }
   } catch (error) {
     console.error('[Seeder Error]:', error.message)
   }
 }
+
